@@ -15,21 +15,21 @@
  */
 
 use hash::*;
+use std::{libc,ptr,vec};
 
 #[allow(non_camel_case_types)]
-struct HMAC_CTX {
-    mut md: EVP_MD,
-    mut md_ctx: EVP_MD_CTX,
-    mut i_ctx: EVP_MD_CTX,
-    mut o_ctx: EVP_MD_CTX,
-    mut key_length: libc::c_uint,
-    mut key: [libc::c_uchar * 128]
+pub struct HMAC_CTX {
+    md: EVP_MD,
+    md_ctx: EVP_MD_CTX,
+    i_ctx: EVP_MD_CTX,
+    o_ctx: EVP_MD_CTX,
+    key_length: libc::c_uint,
+    key: [libc::c_uchar, ..128]
 }
 
-#[link_name = "crypto"]
+#[link_args = "-lcrypto"]
 #[abi = "cdecl"]
-extern mod libcrypto {
-
+extern {
     fn HMAC_CTX_init(ctx: *mut HMAC_CTX, key: *u8, keylen: libc::c_int, md: EVP_MD);
 
     fn HMAC_Update(ctx: *mut HMAC_CTX, input: *u8, len: libc::c_uint);
@@ -38,7 +38,7 @@ extern mod libcrypto {
 }
 
 pub struct HMAC {
-    priv mut ctx: HMAC_CTX,
+    priv ctx: HMAC_CTX,
     priv len: uint,
 }
 
@@ -48,15 +48,15 @@ pub fn HMAC(ht: HashType, key: ~[u8]) -> HMAC {
         let (evp, mdlen) = evpmd(ht);
 
         let mut ctx : HMAC_CTX = HMAC_CTX {
-            mut md: ptr::null(),
-            mut md_ctx: ptr::null(),
-            mut i_ctx: ptr::null(),
-            mut o_ctx: ptr::null(),
-            mut key_length: 0,
-            mut key: [0u8, .. 128]
+            md: ptr::null(),
+            md_ctx: ptr::null(),
+            i_ctx: ptr::null(),
+            o_ctx: ptr::null(),
+            key_length: 0,
+            key: [0u8, .. 128]
         };
 
-        libcrypto::HMAC_CTX_init(&mut ctx,
+        HMAC_CTX_init(&mut ctx,
                                  vec::raw::to_ptr(key),
                                  key.len() as libc::c_int,
                                  evp);
@@ -65,28 +65,32 @@ pub fn HMAC(ht: HashType, key: ~[u8]) -> HMAC {
     }
 }
 
-pub impl HMAC {
-    fn update(data: &[u8]) unsafe {
-        do vec::as_imm_buf(data) |pdata, len| {
-            libcrypto::HMAC_Update(&mut self.ctx, pdata, len as libc::c_uint)
+impl HMAC {
+    pub fn update(&mut self, data: &[u8]) {
+        unsafe {
+            do data.as_imm_buf |pdata, len| {
+                HMAC_Update(&mut self.ctx, pdata, len as libc::c_uint)
+            }
         }
     }
 
-    fn final() -> ~[u8] unsafe {
-        let mut res = vec::from_elem(self.len, 0u8);
-        let mut outlen: libc::c_uint = 0;
-        do vec::as_mut_buf(res) |pres, _len| {
-            libcrypto::HMAC_Final(&mut self.ctx, pres, &mut outlen);
-            assert self.len == outlen as uint
+    pub fn final(&mut self) -> ~[u8] {
+        unsafe {
+            let mut res = vec::from_elem(self.len, 0u8);
+            let mut outlen: libc::c_uint = 0;
+            do res.as_mut_buf |pres, _len| {
+                HMAC_Final(&mut self.ctx, pres, &mut outlen);
+                assert!(self.len == outlen as uint)
+            }
+            res
         }
-        res
     }
 }
 
 fn main() {
-    let h = HMAC(SHA512, ~[00u8]);
+    let mut h = HMAC(SHA512, ~[00u8]);
 
-    h.update(~[00u8]);
+    h.update([00u8]);
 
-    io::println(fmt!("%?", h.final()))
+    println(fmt!("%?", h.final()))
 }
